@@ -15,7 +15,7 @@ setup(
     long_description_content_type = "text/markdown",
     author = "stuxcrystal",
     packages=find_packages(),
-    install_requires=["streamdeck", "click", "crossplane", "aiorun", "pillow"],
+    install_requires=["streamdeck", "crossplane", "aiorun", "pillow"],
     include_package_data=True,
     entry_points = {
         'console_scripts': [
