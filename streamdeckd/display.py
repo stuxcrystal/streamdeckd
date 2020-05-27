@@ -41,11 +41,11 @@ class Button(State):
         if not self.font:
             return ImageFont.load_default()
 
-        key = (self.font, self.image)
+        key = (self.font, self.size)
         if key in _FONTCACHE:
             return _FONTCACHE[key]
         
-        font = ImageFont.truetype(self.font, size=self.image)
+        font = ImageFont.truetype(self.font, size=self.size)
         _FONTCACHE[key] = font
 
         return font
