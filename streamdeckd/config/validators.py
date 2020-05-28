@@ -16,12 +16,19 @@ def validate(name: str, args: Sequence[str], block: Optional[Sequence[dict]], *,
             raise ValueError(f"{name}: Directive does not requires a block")
 
 
-def validated(**kwargs):
+def validated(*, requires_self=True, **kwargs):
     def _decorator(func):
         @wraps(func)
         def _wrapped(self, args: Sequence[str], block: Optional[Sequence[dict]]):
             validate(func.__name__[3:], args, block, **kwargs)
-            return func(self, args, block)
+            if requires_self:
+                return func(self, args, block)
+            else:
+                return func(args, block)
+
+        if not requires_self:
+            _wrapped = _wrapped.__get__(1)
+
         return _wrapped
     return _decorator
         

@@ -12,13 +12,25 @@ class StateVariable(object):
         super().__init__()
         self.state = weakref.WeakKeyDictionary()
         self.default = default
+        self._changed = None
         self.name = None
+
+    def changed(self, cb):
+        self._changed = cb
+        return self
 
     def _convert(self, data: str) -> Any:
         return data
 
     def __set__(self, owner, data):
-        self.state[owner] = self._convert(data)
+        old = self.state.get(owner, _UNSET)
+        new  = self._convert(data)
+        if old == new:
+            return
+
+        self.state[owner] = new
+        if self._changed is not None:
+            self._changed(owner, old, new)
 
     def __get__(self, instance, owner=None):
         while isinstance(instance, State):

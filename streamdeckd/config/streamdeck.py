@@ -3,11 +3,12 @@ from StreamDeck.Devices.StreamDeck import StreamDeck
 
 from streamdeckd.application import Streamdeckd
 from streamdeckd.devices import DeviceSource
+from streamdeckd.signals import create as create_signal
 
 from streamdeckd.config.base import Context
 from streamdeckd.config.validators import validated
-from streamdeckd.config.state import DeckContext, ButtonContext
-from streamdeckd.config.action import SequentialActionContext
+from streamdeckd.config.state import DeckContext, ButtonContext, State
+from streamdeckd.config.action import SequentialActionContext, ActionContext, ActionableContext
 
 
 class BaseButtonDefinition(DeckContext, ButtonContext):
@@ -29,12 +30,96 @@ class BaseButtonDefinition(DeckContext, ButtonContext):
         raise ValueError("state: Directive is not acceptable here.")
 
 
+@ActionContext.register
+class ButtonActionContext(ActionContext):
+
+    @validated(min_args=2, max_args=2, with_block=True)
+    def on_button(self, args, block):
+        from streamdeckd.display import Display
+
+        x = int(args[0])
+        y = int(args[1])
+
+        ctx = SequentialActionContext()
+        ctx.apply_block(block)
+
+        @self.actions.append
+        @ActionableContext.simple
+        async def _op(app, target):
+            while isinstance(target, State):
+                if isinstance(target, Display):
+                    break
+
+                target = target.parent
+            
+            if not isinstance(target, Display):
+                return
+
+            target = target.buttons[(x, y)]
+            await ctx.apply_actions(app, target)
+
+    @validated(min_args=0, max_args=0, with_block=False)
+    def on_press(self, args, block):
+        @self.actions.append
+        @ActionableContext.simple
+        async def _op(app, target):
+            await target.when_key_pressed()
+
+    @validated(min_args=0, max_args=0, with_block=False)
+    def on_release(self, args, block):
+        @self.actions.append
+        @ActionableContext.simple
+        async def _op(app, target):
+            await target.when_key_released(force=True)
+
+
 class StateDefinition(BaseButtonDefinition):
     
     def __init__(self, name: str, default: bool):
         super().__init__()
         self.name = name
         self.default = default
+        self.entered = None
+        self.leaving = None
+        self.signals = []
+
+    @validated(min_args=0, max_args=0, with_block=True)
+    def on_entered(self, args, block):
+        self.entered = SequentialActionContext()
+        self.entered.apply_block(block)
+
+    @validated(min_args=0, max_args=0, with_block=True)
+    def on_leaving(self, args, block):
+        self.leaving = SequentialActionContext()
+        self.leaving.apply_block(block)
+
+    @validated(min_args=1, with_block=True)
+    def on_signal(self, args, block):
+        name = args[0]
+        rest = args[1:]
+        signal = create_signal(name, rest, None)
+
+        ctx = SequentialActionContext()
+        ctx.apply_block(block)
+
+        self.signals.append((signal, ctx, [None]))
+
+    async def when_entered(self, app, target):
+        if self.entered is not None:
+            await self.entered.apply_actions(app, target)
+
+        for signal, sig_ctx, cb_holder in self.signals:
+            cb = lambda: sig_ctx.apply_actions(app, target)
+            cb_holder[0] = cb
+            signal.register(cb)
+
+    async def when_leaving(self, app, target):
+        if self.leaving is not None:
+            await self.leaving.apply_actions(app, target)
+
+        for signal, sig_ctx, cb_holder in self.signals:
+            signal.unregister(cb_holder[0])
+            cb_holder[0] = None
 
 
 class ButtonDefinition(BaseButtonDefinition):
@@ -66,7 +151,7 @@ class ButtonDefinition(BaseButtonDefinition):
             if ctx.default:
                 return ctx
 
-        return StateDefinition('<none>', True)
+        return StateDefinition('', True)
 
 
 class MenuContext(DeckContext, ButtonContext):
@@ -99,6 +184,8 @@ class StreamdeckContext(DeckContext, ButtonContext):
         self.default = default
         self.menus: List[MenuContext] = []
 
+        self.connected = None
+
     def get_menu(self, name: Optional[str]) -> MenuContext:
         if name is not None:
             for ctx in self.menus:
@@ -108,7 +195,7 @@ class StreamdeckContext(DeckContext, ButtonContext):
             if ctx.default:
                 return ctx
 
-        return MenuContext('<none>', True)
+        return MenuContext('', True)
 
     @validated(min_args=1, max_args=2, with_block=True)
     def on_menu(self, args, block):
@@ -121,6 +208,12 @@ class StreamdeckContext(DeckContext, ButtonContext):
         ctx = MenuContext(args[0], default=default)
         ctx.apply_block(block)
         self.menus.append(ctx)
+
+    @validated(min_args=0, max_args=0, with_block=True)
+    def on_connected(self, args, block):
+        ctx = SequentialActionContext()
+        ctx.apply_block(block)
+        self.connected = ctx
 
     def matches(self, deck: StreamDeck) -> bool:
         return cast(DeviceSource, self.app.scanner).matches(self.identifier, deck)

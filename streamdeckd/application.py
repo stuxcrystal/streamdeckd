@@ -13,6 +13,12 @@ from streamdeckd.devices import get_default_source, DeviceSource
 from streamdeckd.display import Display
 
 
+MAIN_PLUGINS = [
+    "system",
+    "time",
+    "run"
+]
+
 
 class Streamdeckd:
 
@@ -84,10 +90,13 @@ class Streamdeckd:
 
         from streamdeckd.config.application import ApplicationContext
         ctx = ApplicationContext(self)
-        ctx.apply_directive("load", ("system",), None)
+        for plugin in MAIN_PLUGINS:
+            ctx.apply_directive("load", (plugin,), None)
         ctx.apply_block(block)
 
         self.plugins = ctx.modules
+
+        ctx.prepare()
         self._bootstrap_commands.append(ctx.apply)
 
     async def _start(self):

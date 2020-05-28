@@ -80,7 +80,7 @@ class SequentialActionContext(ActionContext):
 class ParallelActionContext(ActionContext):
 
     async def apply_actions(self, app: Streamdeckd, target: State):
-        await asyncio.gather(action.apply_actions(app, target) for action in self.actions)
+        await asyncio.gather(*(action.apply_actions(app, target) for action in self.actions))
 
 
 @ActionContext.register

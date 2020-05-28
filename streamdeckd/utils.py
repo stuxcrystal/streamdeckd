@@ -1,4 +1,4 @@
-from typing import TypeVar, Dict, Optional
+from typing import TypeVar, Dict, Optional, Callable
 from datetime import timedelta
 from importlib import import_module
 
@@ -75,3 +75,13 @@ TimeSpanStateVariable = StateVariable.from_parser(parse_timespan)
 ColorStateVariable = StateVariable.from_parser(parse_color)
 ImageOrColorStateVariable = StateVariable.from_parser(parse_color_or_img)
 ImageStateVariable = StateVariable.from_parser(parse_img)
+
+
+
+class LiveVariable:
+
+    def __init__(self, cb: Callable[[], str]):
+        self.cb = cb
+
+    def __format__(self, spec: str):
+        return self.cb().__format__(spec)

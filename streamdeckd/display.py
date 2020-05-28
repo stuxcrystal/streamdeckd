@@ -7,7 +7,7 @@ from StreamDeck.ImageHelpers import PILHelper
 from StreamDeck.Devices.StreamDeck import StreamDeck
 
 from streamdeckd.state import State, StateVariable
-from streamdeckd.utils import parse_color, ColorStateVariable, TimeSpanStateVariable, ImageStateVariable
+from streamdeckd.utils import parse_color, ColorStateVariable, TimeSpanStateVariable, ImageStateVariable, LiveVariable
 from streamdeckd.variables import Variables
 
 
@@ -29,13 +29,27 @@ class Button(State):
 
     def __init__(self, x: int, y: int, parent: 'Display'):
         super().__init__(parent)
+
         self.x = x
         self.y = y
+        self.p = self.y*self.parent.deck.key_layout()[0] + self.x
+
         self.reset()
+
+        self.d_vars = {
+            "x": self.x,
+            "y": self.y,
+            "p": self.p,
+            "state": LiveVariable(lambda: self.state)
+        }
+        self.s_vars = self.parent.s_vars.make_child()
+        self.s_vars.add_map(self.d_vars)
 
         self._shown_image: Image.Image = PILHelper.create_image(self.parent.deck)
 
-        self._pressed = 0
+        self._pressed = False
+
+        self._current_state = None
 
     def _get_font(self):
         if not self.font:
@@ -50,10 +64,10 @@ class Button(State):
 
         return font
 
-    def draw(self, variables: Variables) -> Image.Image:
+    def draw(self):
         img = self._shown_image
 
-        text = variables.format(self.text)
+        text = self.s_vars.format(self.text)
 
         draw = ImageDraw.Draw(img)
         draw.rectangle(((0, 0), (img.width, img.height)), fill=self.bg)
@@ -68,54 +82,70 @@ class Button(State):
         else:
             iw = img.width - th - 15
             ih = img.height - th - 15
-            img.paste(self.image.resize((iw, ih), Image.BICUBIC), ((img.width - iw)//2, 5))
+
+            resized = self.image.resize((iw, ih), Image.BICUBIC)
+            if img.mode == "RGBA":
+                img.paste(resized, ((img.width - iw)//2, 5), resized)
+            else:
+                img.paste(resized, ((img.width - iw)//2, 5))
+
             ty = img.height - 5 - th
 
         draw.text((tx, ty), text, font=font, fill=self.fg)
         return img
 
     async def when_key_pressed(self):
-        self._pressed += 1
+        self._pressed = True
 
         if self.pressed is not None:
             get_running_loop().create_task(self.pressed.apply_actions(self.parent.app, self))
 
-    async def when_key_released(self):
-        if self._pressed == 0:
+    async def when_key_released(self, force=False):
+        if not force and not self._pressed:
             self.parent.app.logger.debug("Button press was masked.")
             return
-        self._pressed -= 1
+        self._pressed = False
 
         if self.released is not None:
             get_running_loop().create_task(self.released.apply_actions(self.parent.app, self))
 
-    def reset(self):
+    def reset(self, *, with_state=False):
         self.text = ""
         self.font = ""
         self.size = "10"
         self.image = ""
         self.bg = "#000"
         self.fg = "#FFF"
+        if with_state:
+            self.state = ""
+            self._current_state = None
 
         self.pressed = None
         self.released = None
 
+        self._pressed = False
+
     def __repr__(self):
         return f"<Button ({self.x},{self.y})>"
 
-    def apply(self, settings, unseen=None, exclude_classes=[]):
-        if unseen is None:
-            unseen = set(settings.keys())
-        if "state" in unseen and "state" in settings:
-            unseen.remove("state")
-            self.state = settings["state"]
-            self.parent.apply_button_contexts(self)
-        super().apply(settings, unseen, exclude_classes)
+    @state.changed
+    def state(self, old, new):
+        if self._current_state is not None:
+            get_running_loop().create_task(self._current_state.when_leaving(self.parent.app, self))
+
+        self._current_state = self.parent.get_state_of(self, new)
+        self.parent.apply_button_contexts(self)
+        self._pressed = False
+
+        if self._current_state is not None:
+            get_running_loop().create_task(self._current_state.when_entered(self.parent.app, self))
 
 
 class Display(State):
     fps = StateVariable.with_parser(float, 0)
     brightness = StateVariable.with_parser(float, 1.0)
+
+    menu = StateVariable()
 
 
     def __init__(self, app: 'streamdeckd.application.Streamdeckd', ctx: 'streamdeckd.config.streamdeck.StreamDeckContext', deck: StreamDeck):
@@ -124,22 +154,14 @@ class Display(State):
         self.deck = deck
         self.ctx = ctx
 
+        self.d_vars = {}
+        self.s_vars = self.app.variables.make_child()
+        self.s_vars.add_map(self.d_vars)
+
         self.current_menu = None
 
         self.buttons: Dict[Tuple[int, int], Button] = {}
 
-    @property
-    def menu(self):
-        return self.current_menu
-
-    @menu.setter
-    def menu(self, name: Optional[str]):
-        self.current_menu = self.ctx.get_menu(name)
-        for btn in self.buttons.values():
-            self.apply_button_contexts(btn)
-
-        self.render()
-    
     async def when_key_state_changed(self, _, kid: int, pressed: bool):
         y, x = divmod(kid, self.deck.key_layout()[1])
         btn = self.buttons[(x, y)]
@@ -149,6 +171,18 @@ class Display(State):
         else:
             self.app.logger.info(f"Released button {x},{y}")
             await btn.when_key_released()
+
+    def get_state_of(self, btn: Button, name: Optional[str]=None):
+        bctx = self.current_menu.buttons.get((btn.x, btn.y), None)
+
+        if name is None:
+            name = btn.state
+
+        sctx = None
+        if bctx is not None:
+            sctx = bctx.get_state(name)
+
+        return sctx
 
     def apply_button_contexts(self, btn: Button):
         loc = (btn.x, btn.y)
@@ -166,10 +200,12 @@ class Display(State):
             btn.apply(sctx.state, exclude_classes=[Display])
 
     def open(self) -> None:
-        self.deck.set_key_callback_async(self.when_key_state_changed)
-        self.apply(self.ctx.state)
-
         self.deck.open()
+        self.deck.set_key_callback_async(self.when_key_state_changed)
+
+        self.apply(self.ctx.state)
+        self.d_vars["serial_number"] = self.deck.get_serial_number()
+        self.d_vars["firmware_version"] = self.deck.get_firmware_version()
 
         layout = self.deck.key_layout()
         for y in range(layout[0]):
@@ -177,6 +213,8 @@ class Display(State):
                 self.buttons[(x, y)] = Button(x, y, self)
 
         self.menu = None
+        
+        get_running_loop().create_task(self.ctx.connected.apply_actions(self.app, Button(-1, -1, self)))
 
         if self.fps:
             self.app.scheduler.add_recurring(1.0 / self.fps, self._update)
@@ -187,21 +225,17 @@ class Display(State):
     def render(self) -> None:
         self.app.logger.debug(f"Rendering {self.deck.id()}")
         width = self.deck.key_layout()[1]
-        _vardata: dict = {}
-        txtvars = self.app.variables.make_child()
-        txtvars.add_map(_vardata)
 
         self.deck.set_brightness(self.brightness)
 
         for (x, y), btn in self.buttons.items():
             p = y*width + x
-            _vardata.update(x=x, y=y, p=p)
 
-            raw = self._draw(x, y, btn, txtvars)
+            raw = self._draw(x, y, btn)
             self.deck.set_key_image(p, raw)
 
-    def _draw(self, x: int, y: int, btn: Button, txtvars: Variables):
-        img = btn.draw(txtvars)
+    def _draw(self, x: int, y: int, btn: Button):
+        img = btn.draw()
         return PILHelper.to_native_format(self.deck, img)
         
     def close(self) -> None:
@@ -209,12 +243,16 @@ class Display(State):
             self.deck.reset()
         finally:
             self.deck.close()
+    
+    @menu.changed
+    def menu(self, old, new):
+        self.current_menu = self.ctx.get_menu(new)
+        for loc, btn in self.buttons.items():
+            btn.reset(with_state=True)
 
-    def apply(self, settings, unseen=None, exclude_classes=[]):
-        if unseen is None:
-            unseen = set(settings.keys())
-        if "menu" in unseen and "menu" in settings:
-            unseen.remove("menu")
-            self.menu = settings["menu"]
+            bctx = self.current_menu.buttons.get(loc, None)
+            if bctx is not None:
+                self.apply_button_contexts(btn)
+                btn.apply({"state": bctx.get_state(None).name})
 
-        super().apply(settings, unseen, exclude_classes)
+        self.render()
