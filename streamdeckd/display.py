@@ -199,26 +199,6 @@ class Display(State):
         if sctx is not None:
             btn.apply(sctx.state, exclude_classes=[Display])
 
-    def open(self) -> None:
-        self.deck.open()
-        self.deck.set_key_callback_async(self.when_key_state_changed)
-
-        self.apply(self.ctx.state)
-        self.d_vars["serial_number"] = self.deck.get_serial_number()
-        self.d_vars["firmware_version"] = self.deck.get_firmware_version()
-
-        layout = self.deck.key_layout()
-        for y in range(layout[0]):
-            for x in range(layout[1]):
-                self.buttons[(x, y)] = Button(x, y, self)
-
-        self.menu = None
-        
-        get_running_loop().create_task(self.ctx.connected.apply_actions(self.app, Button(-1, -1, self)))
-
-        if self.fps:
-            self.app.scheduler.add_recurring(1.0 / self.fps, self._update)
-
     async def _update(self):
         self.render()
 
@@ -238,8 +218,39 @@ class Display(State):
         img = btn.draw()
         return PILHelper.to_native_format(self.deck, img)
         
+    def open(self) -> None:
+        self.deck.open()
+        self.deck.set_key_callback_async(self.when_key_state_changed)
+
+        self.apply(self.ctx.state)
+        self.d_vars["serial_number"] = self.deck.get_serial_number()
+        self.d_vars["firmware_version"] = self.deck.get_firmware_version()
+
+        layout = self.deck.key_layout()
+        for y in range(layout[0]):
+            for x in range(layout[1]):
+                self.buttons[(x, y)] = Button(x, y, self)
+
+        self.menu = None
+        
+        fakebtn = Button(-1, -1, self)
+        get_running_loop().create_task(self.ctx.connected.apply_actions(self.app, Button(-1, -1, self)))
+        sigcbs = []
+        for signal, sig_ctx, cb_holder in self.ctx.signals:
+            cb = (lambda ctx: (lambda: ctx.apply_actions(self.app, fakebtn)))(sig_ctx)
+            cb_holder[0] = cb
+            signal.register(cb)
+
+        if self.fps:
+            self.app.scheduler.add_recurring(1.0 / self.fps, self._update)
+
     def close(self) -> None:
         try:
+            for signal, sig_ctx, cb_holder in self.ctx.signals:
+                cb = cb_holder[0]
+                signal.unregister(cb)
+                cb_holder[0] = None
+
             self.deck.reset()
         finally:
             self.deck.close()

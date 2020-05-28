@@ -73,25 +73,11 @@ class ButtonActionContext(ActionContext):
             await target.when_key_released(force=True)
 
 
-class StateDefinition(BaseButtonDefinition):
-    
-    def __init__(self, name: str, default: bool):
-        super().__init__()
-        self.name = name
-        self.default = default
-        self.entered = None
-        self.leaving = None
+class SignalContext:
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.signals = []
-
-    @validated(min_args=0, max_args=0, with_block=True)
-    def on_entered(self, args, block):
-        self.entered = SequentialActionContext()
-        self.entered.apply_block(block)
-
-    @validated(min_args=0, max_args=0, with_block=True)
-    def on_leaving(self, args, block):
-        self.leaving = SequentialActionContext()
-        self.leaving.apply_block(block)
 
     @validated(min_args=1, with_block=True)
     def on_signal(self, args, block):
@@ -104,12 +90,32 @@ class StateDefinition(BaseButtonDefinition):
 
         self.signals.append((signal, ctx, [None]))
 
+
+class StateDefinition(SignalContext, BaseButtonDefinition):
+    
+    def __init__(self, name: str, default: bool):
+        super().__init__()
+        self.name = name
+        self.default = default
+        self.entered = None
+        self.leaving = None
+
+    @validated(min_args=0, max_args=0, with_block=True)
+    def on_entered(self, args, block):
+        self.entered = SequentialActionContext()
+        self.entered.apply_block(block)
+
+    @validated(min_args=0, max_args=0, with_block=True)
+    def on_leaving(self, args, block):
+        self.leaving = SequentialActionContext()
+        self.leaving.apply_block(block)
+
     async def when_entered(self, app, target):
         if self.entered is not None:
             await self.entered.apply_actions(app, target)
 
         for signal, sig_ctx, cb_holder in self.signals:
-            cb = lambda: sig_ctx.apply_actions(app, target)
+            cb = (lambda ctx: (lambda: ctx.apply_actions(app, target)))(sig_ctx)
             cb_holder[0] = cb
             signal.register(cb)
 
@@ -174,7 +180,7 @@ class MenuContext(DeckContext, ButtonContext):
         self.buttons[(x, y)] = ctx
 
 
-class StreamdeckContext(DeckContext, ButtonContext):
+class StreamdeckContext(SignalContext, DeckContext, ButtonContext):
 
     def __init__(self, app: Streamdeckd, identifier: str, default:bool=False):
         super().__init__()

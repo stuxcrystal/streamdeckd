@@ -2,6 +2,7 @@ import asyncio
 
 from streamdeckd.utils import parse_timespan
 from streamdeckd.application import Streamdeckd
+from streamdeckd.signals import Signal, register as register_signal
 from streamdeckd.config.application import ApplicationContext
 
 from streamdeckd.config.action import ActionableContext, ActionContext, SequentialActionContext
@@ -9,6 +10,7 @@ from streamdeckd.config.validators import validated
 
 
 CUSTOM_VARS = {}
+SIGNALS = {}
 
 
 class ExitAction(ActionableContext):
@@ -19,6 +21,24 @@ class ExitAction(ActionableContext):
 
     async def apply_actions(self, _, __):
         asyncio.get_running_loop().stop()
+
+
+class CustomSignals(Signal):
+    def __init__(self):
+        self._name = None
+
+    @validated(min_args=1, max_args=1)
+    def configure(self, args, _):
+        self._name = args[0]
+        SIGNALS[args[0]] = []
+
+    def register(self, cb):
+        if cb not in SIGNALS:
+            SIGNALS[self._name].append(cb)
+
+    def unregister(self, cb):
+        while cb in SIGNALS:
+            SIGNALS[self._name].remove(cb)
 
 
 class SimpleActions(ActionContext):
@@ -49,6 +69,16 @@ class SimpleActions(ActionContext):
         async def _op(app: Streamdeckd, _):
             value = app.variables.format(args[1])
             CUSTOM_VARS[args[0]] = value
+
+    @validated(min_args=1, max_args=1, with_block=False)
+    def on_emit(self, args, block):
+        @self.actions.append
+        @ActionableContext.simple
+        async def _op(app, __):
+            value = app.variables.format(args[0])
+            if value not in SIGNALS:
+                return
+            await asyncio.gather(*(sig() for sig in SIGNALS[value]))
 
 
 def check_conj(lhs, rhs, op):
@@ -116,6 +146,8 @@ def load(app: Streamdeckd, ctx: ApplicationContext):
 
     ActionContext.register(IfAction)
     ActionContext.register(WhileAction)
+
+    register_signal("custom")(CustomSignals)
 
 async def start(app: Streamdeckd):
     app.variables.add_map(CUSTOM_VARS)
