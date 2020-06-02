@@ -49,6 +49,15 @@ class ActionContext(ActionableContext):
         await self.actions[0].apply_actions(app, target)
 
 
+class SilentActionContext(ActionContext):
+
+    async def apply_actions(self, app: Streamdeckd, target: State):
+        try:
+            await super().apply_actions(app, target)
+        except Exception as e:
+            pass
+
+
 class ShieldedActionContext(ActionContext):
 
     async def apply_actions(self, app: Streamdeckd, target: State):
@@ -105,5 +114,10 @@ class ExecutionActionContext(ActionContext):
 
     def on_shield(self, args, block):
         ctx = ShieldedActionContext()
+        ctx.apply_directive(args[0], args[1:], block)
+        self.actions.append(ctx)
+
+    def on_silent(self, args, block):
+        ctx = SilentActionContext()
         ctx.apply_directive(args[0], args[1:], block)
         self.actions.append(ctx)

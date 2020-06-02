@@ -28,8 +28,9 @@ TIME_UNITS = {
 def parse_timespan(tinfo: str) -> timedelta:
     if tinfo.isnumeric():
         return timedelta(seconds=int(tinfo))
-    if tinfo[:-1].isnumeric():
-        return timedelta(seconds=int(tinfo[:-1])*TIME_UNITS[tinfo[-1]])
+    for unit, multiplier in TIME_UNITS.items():
+        if tinfo.endswith(unit):
+            return timedelta(seconds=int(tinfo[:-len(unit)])*multiplier)
     raise ValueError("Cannot parse timespan.")
 
 

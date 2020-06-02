@@ -96,6 +96,7 @@ class JSONParser(Parser):
         except UnicodeDecodeError:
             return ""
 
+
         if self.path is not None:
             return self.path.find(json)
         else:
@@ -132,7 +133,7 @@ class RequestContext(ActionableContext):
 
     @validated(min_args=1, max_args=1, with_block=False)
     def on_body(self, args, block):
-        self.body = ""
+        self.body = args[0]
 
     @validated(min_args=1, max_args=1, with_block=False)
     def on_variable(self, args, block):
