@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional
 
 from streamdeckd.application import Streamdeckd

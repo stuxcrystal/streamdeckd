@@ -168,6 +168,8 @@ class MenuContext(DeckContext, ButtonContext):
         self.default = default
 
         self.buttons: Dict[Tuple[int, int], ButtonContext] = {}
+        self.opened = None
+        self.closed = None
 
     @validated(min_args=2, max_args=2, with_block=True)
     def on_button(self, args, block):
@@ -178,6 +180,19 @@ class MenuContext(DeckContext, ButtonContext):
         ctx.apply_block(block)
 
         self.buttons[(x, y)] = ctx
+
+    @validated(min_args=0, max_args=0, with_block=True)
+    def on_opened(self, args, block):
+        ctx = SequentialActionContext()
+        ctx.apply_block(block)
+        self.opened = ctx
+
+    @validated(min_args=0, max_args=0, with_block=True)
+    def on_closed(self, args, block):
+        ctx = SequentialActionContext()
+        ctx.apply_block(block)
+        self.closed = ctx
+
 
 
 class StreamdeckContext(SignalContext, DeckContext, ButtonContext):

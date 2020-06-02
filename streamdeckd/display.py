@@ -35,6 +35,14 @@ class Button(State):
         self.p = self.y*self.parent.deck.key_layout()[0] + self.x
 
         self.reset()
+        self._display_state = {
+            "text": None, 
+            "bg": None,
+            "fg": None,
+            "image": None,
+            "font": None,
+            "size": None
+        }
 
         self.d_vars = {
             "x": self.x,
@@ -51,6 +59,16 @@ class Button(State):
 
         self._current_state = None
 
+    def _make_state(self, text):
+        return {
+            "text": text,
+            "bg": self.bg,
+            "fg": self.fg,
+            "image": self.image,
+            "font": self.font,
+            "size": self.size
+        }
+
     def _get_font(self):
         if not self.font:
             return ImageFont.load_default()
@@ -66,8 +84,13 @@ class Button(State):
 
     def draw(self):
         img = self._shown_image
-
         text = self.s_vars.format(self.text)
+
+        new_state = self._make_state(text)
+        if new_state == self._display_state:
+            return None
+        self.parent.app.logger.debug(f"Change detected at: {self.x},{self.y} => Rerendering")
+        self._display_state = new_state
 
         draw = ImageDraw.Draw(img)
         draw.rectangle(((0, 0), (img.width, img.height)), fill=self.bg)
@@ -153,6 +176,7 @@ class Display(State):
         self.app = app
         self.deck = deck
         self.ctx = ctx
+        self._should_render = False
 
         self.d_vars = {}
         self.s_vars = self.app.variables.make_child()
@@ -200,9 +224,17 @@ class Display(State):
             btn.apply(sctx.state, exclude_classes=[Display])
 
     async def _update(self):
-        self.render()
+        self.render_now()
 
     def render(self) -> None:
+        if self._should_render:
+            return
+
+        self._should_render = True
+        get_running_loop().call_later(0.05, self.render_now)
+
+    def render_now(self) -> None:
+        self._should_render = False
         self.app.logger.debug(f"Rendering {self.deck.id()}")
         width = self.deck.key_layout()[1]
 
@@ -212,10 +244,14 @@ class Display(State):
             p = y*width + x
 
             raw = self._draw(x, y, btn)
+            if raw is None:
+                continue
             self.deck.set_key_image(p, raw)
 
     def _draw(self, x: int, y: int, btn: Button):
         img = btn.draw()
+        if img is None:
+            return None
         return PILHelper.to_native_format(self.deck, img)
         
     def open(self) -> None:
@@ -257,7 +293,11 @@ class Display(State):
     
     @menu.changed
     def menu(self, old, new):
+        if self.current_menu is not None and self.current_menu.closed is not None:
+            get_running_loop().create_task(self.current_menu.closed.apply_actions(self.app, Button(-1, -1, self)))
+
         self.current_menu = self.ctx.get_menu(new)
+
         for loc, btn in self.buttons.items():
             btn.reset(with_state=True)
 
@@ -266,4 +306,8 @@ class Display(State):
                 self.apply_button_contexts(btn)
                 btn.apply({"state": bctx.get_state(None).name})
 
-        self.render()
+        if self.current_menu is not None and self.current_menu.opened is not None:
+            get_running_loop().create_task(self.current_menu.opened.apply_actions(self.app, Button(-1, -1, self)))
+        
+        self.render_now()
+
