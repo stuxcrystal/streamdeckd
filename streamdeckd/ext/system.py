@@ -23,6 +23,67 @@ class ExitAction(ActionableContext):
         asyncio.get_running_loop().stop()
 
 
+class WhenSignal(Signal):
+
+    def __init__(self, app: Streamdeckd):
+        self.app = app
+        self.sigs = {}
+
+    @validated(min_args=1, max_args=1)
+    def configure(self, args, _):
+        self.lhs, self.op, self.rhs = args
+
+    def register(self, cb):
+        last_value = [None, None]
+        async def _check(self):
+            nonlocal last_value
+            current_value_lhs = self.app.variables.format(self.lhs)
+            current_value_rhs = self.app.variables.format(self.rhs)
+            if [current_value_lhs, current_value_rhs] == last_value:
+                return
+            last_value = [current_value_lhs, current_value_rhs]
+            if check_conj(current_value_lhs, current_value_rhs, self.op):
+                await cb()
+
+        self.sigs[cb] = self.app.scheduler.add_recurring(0.1, _check)
+
+    def unregister(self, cb):
+        handle = self.sigs.pop(cb, None)
+        if handle is None:
+            self.app.scheduler.remove_recurring(handle)
+
+
+class ChangedSignal(Signal):
+
+    def __init__(self, app: Streamdeckd):
+        self.app = app
+        self.sigs = {}
+
+    @validated(min_args=1, max_args=1)
+    def configure(self, args, _):
+        self.data = args[0]
+
+    def register(self, cb):
+        last_value = None
+
+        async def _check():
+            nonlocal last_value
+
+            current_value = self.app.variables.format(self.data)
+            if current_value == last_value:
+                return
+            last_value = current_value
+
+            await cb()
+
+        self.sigs[cb] = self.app.scheduler.add_recurring(0.1, _check)
+
+    def unregister(self, cb):
+        handle = self.sigs.pop(cb, None)
+        if handle is not None:
+            self.app.scheduler.remove_recurring(handle)
+
+
 class CustomSignals(Signal):
     def __init__(self):
         self._name = None
@@ -95,12 +156,12 @@ def check_conj(lhs, rhs, op):
     return True
 
 
-class IfAction(ActionableContext):
+class IfAction(ActionContext):
 
     @validated(min_args=3, max_args=3, with_block=True)
     def on_if(self, args, block):
         self.op = args[1]
-        if op not in {"==", "!=", "in", "not in"}:
+        if self.op not in {"==", "!=", "in", "not in"}:
             raise ValueError(f"if: unknown operand {op}")
         self.lhs = args[0]
         self.rhs = args[2]
@@ -118,7 +179,7 @@ class IfAction(ActionableContext):
             await super().apply_actions(app, target)
 
 
-class WhileAction(ActionableContext):
+class WhileAction(ActionContext):
     @validated(min_args=3, max_args=3, with_block=True)
     def on_while(self, args, block):
         self.op = args[1]
@@ -148,6 +209,8 @@ def load(app: Streamdeckd, ctx: ApplicationContext):
     ActionContext.register(WhileAction)
 
     register_signal("custom")(CustomSignals)
+    register_signal("when")(lambda: WhenSignal(app))
+    register_signal("changed")(lambda: ChangedSignal(app))
 
 async def start(app: Streamdeckd):
     app.variables.add_map(CUSTOM_VARS)

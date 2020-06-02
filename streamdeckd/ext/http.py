@@ -1,7 +1,9 @@
+import json
 import asyncio
-from typing import Type, Sequence, Optional
+from typing import Type, Sequence, Optional, Any
 
 import aiohttp
+from jsonpath_ng import parse as parse_jsonpath
 
 from streamdeckd.application import Streamdeckd
 
@@ -19,7 +21,7 @@ class Parser(Context):
     def read_directive(self, args: Sequence[str], block: Optional[Sequence[dict]]):
         self.apply_block(block)
 
-    async def parse(self, response: aiohttp.ClientResponse) -> str:
+    async def parse(self, response: aiohttp.ClientResponse) -> Any:
         pass
 
 
@@ -64,6 +66,40 @@ class TextParser(Parser):
             return await response.text(encoding=self.encoding, errors=self.encoding_errors)
         except UnicodeDecodeError:
             return ""
+
+
+@register_parser("json")
+class JSONParser(Parser):
+
+    def __init__(self):
+        self.encoding = None
+        self.encoding_errors = "strict"
+        self.path = None
+
+    @validated(min_args=0, max_args=1)
+    def read_directive(self, args: Sequence[str], block: Optional[Sequence[dict]]):
+        if block is None:
+            block = []
+        if len(args) == 1:
+            self.path = parse(args[0])
+        super().read_directive(args, block)
+
+    @validated(min_args=1, max_args=2, with_block=False)
+    def on_encoding(self, args: Sequence[str], block: None):
+        self.encoding = args[0]
+        if len(args) == 2:
+            self.encoding_erros = args[1]
+        
+    async def parse(self, response: aiohttp.ClientResponse) -> Any:
+        try:
+            json = await response.json(encoding=self.encoding)
+        except UnicodeDecodeError:
+            return ""
+
+        if self.path is not None:
+            return self.path.find(json)
+        else:
+            return json
 
 
 class RequestContext(ActionableContext):

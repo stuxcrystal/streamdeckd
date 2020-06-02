@@ -115,6 +115,9 @@ class StateDefinition(SignalContext, BaseButtonDefinition):
             await self.entered.apply_actions(app, target)
 
         for signal, sig_ctx, cb_holder in self.signals:
+            if cb_holder[0] is not None:
+                continue
+
             cb = (lambda ctx: (lambda: ctx.apply_actions(app, target)))(sig_ctx)
             cb_holder[0] = cb
             signal.register(cb)

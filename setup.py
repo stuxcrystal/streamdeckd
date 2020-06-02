@@ -15,7 +15,14 @@ setup(
     long_description_content_type = "text/markdown",
     author = "stuxcrystal",
     packages=find_packages(),
+
     install_requires=["streamdeck", "crossplane", "aiorun", "pillow"],
+    extras_require={
+        "all": ["aiohttp", "jsonpath-ng"]
+        "http": ["aiohttp", "jsonpath-ng"],
+        "pulseaudio": ["pulsectl"]
+    },
+
     include_package_data=True,
     entry_points = {
         'console_scripts': [

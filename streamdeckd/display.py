@@ -85,6 +85,7 @@ class Button(State):
     def draw(self):
         img = self._shown_image
         text = self.s_vars.format(self.text)
+        text = text.replace("\\n", "\n")
 
         new_state = self._make_state(text)
         if new_state == self._display_state:

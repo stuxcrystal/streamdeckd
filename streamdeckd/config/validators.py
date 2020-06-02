@@ -27,7 +27,7 @@ def validated(*, requires_self=True, **kwargs):
                 return func(args, block)
 
         if not requires_self:
-            _wrapped = _wrapped.__get__(1)
+            _wrapped = _wrapped.__get__(object())
 
         return _wrapped
     return _decorator
