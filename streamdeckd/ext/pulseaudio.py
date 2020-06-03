@@ -1,4 +1,5 @@
 import time
+import asyncio
 import pulsectl
 
 from streamdeckd.application import Streamdeckd
@@ -81,8 +82,18 @@ def load(app: Streamdeckd, ctx: ApplicationContext):
 
 async def start(app: Streamdeckd):
     global PULSE_INSTANCE
-    PULSE_INSTANCE = pulsectl.Pulse('streamdeckd', connect=False)
-    PULSE_INSTANCE.connect()
+    for i in range(100):
+        try:
+            PULSE_INSTANCE = pulsectl.Pulse('streamdeckd', connect=False)
+            PULSE_INSTANCE.connect()
+        except:
+            await asyncio.sleep(1)
+        else:
+            break
+    else:
+        app.logger.critical("Cannot connect to PulseAudio. Aborting")
+        asyncio.get_running_loop().stop()
+        return
 
     app.variables.add_map({"pulse": PulseValues()})
 
