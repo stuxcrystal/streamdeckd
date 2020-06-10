@@ -271,7 +271,9 @@ class Display(State):
         self.menu = None
         
         fakebtn = Button(-1, -1, self)
-        get_running_loop().create_task(self.ctx.connected.apply_actions(self.app, Button(-1, -1, self)))
+        if self.ctx.connected is not None:
+            get_running_loop().create_task(self.ctx.connected.apply_actions(self.app, Button(-1, -1, self)))
+
         sigcbs = []
         for signal, sig_ctx, cb_holder in self.ctx.signals:
             cb = (lambda ctx: (lambda: ctx.apply_actions(self.app, fakebtn)))(sig_ctx)

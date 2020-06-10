@@ -19,13 +19,15 @@ Start with this example configuration:
 rescan 10s;
 
 streamdeck '*' default {
-    label "{x} {y}";
+    menu "Main" default {
+        text "{x} {y}";
 
-    button 0 0 {
-        label "Close";
+        button 0 0 {
+            text "Close";
 
-        released {
-            exit;
+            released {
+                exit;
+            }
         }
     }
 }
