@@ -88,7 +88,7 @@ class ApplicationContext(Context):
         if args[0] in self._loaded_modules:
             return
 
-        module: Any = importlib.import_module("streamdeckd.ext." + args[0])
+        module: Any = importlib.import_module("streamdeckd_ext." + args[0])
         self.modules.append(module)
 
         module.load(self.app, self)
