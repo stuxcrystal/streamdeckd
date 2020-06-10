@@ -18,7 +18,7 @@ setup(
 
     install_requires=["streamdeck", "crossplane", "aiorun", "pillow"],
     extras_require={
-        "all": ["aiohttp", "jsonpath-ng"]
+        "all": ["aiohttp", "jsonpath-ng", "pulsectl"],
         "http": ["aiohttp", "jsonpath-ng"],
         "pulseaudio": ["pulsectl"]
     },
