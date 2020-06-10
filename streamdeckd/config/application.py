@@ -142,7 +142,6 @@ class ApplicationContext(Context):
     def prepare(self):
         for stage in sorted(self.prepare_list.keys()):
             for cb in self.prepare_list[stage]:
-                print(stage, cb)
                 cb()
 
     async def when_entered(self, app, target):
